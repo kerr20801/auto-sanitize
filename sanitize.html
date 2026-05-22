@@ -1,0 +1,1657 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Config 消毒 — auto-sanitize by Kerr</title>
+<script type="module">
+  window._loadEmbedder = async () => {
+    if (window._embedder) return window._embedder;
+    const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.min.js');
+    env.allowLocalModels = false;
+    window._embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+      quantized: true,
+      progress_callback: p => {
+        if (p.status === 'progress') {
+          const pct = Math.round(p.progress || 0);
+          const bar = document.getElementById('ml-dl-bar');
+          const lbl = document.getElementById('ml-dl-label');
+          if (bar) bar.style.width = pct + '%';
+          if (lbl) lbl.textContent = `下載模型中 ${pct}%...`;
+        }
+      }
+    });
+    return window._embedder;
+  };
+</script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f1117; color: #e0e0e0; font-family: 'Segoe UI', monospace; min-height: 100vh; }
+
+  header { padding: 16px 28px; border-bottom: 1px solid #2a2d3e; display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 1.15rem; color: #7dd3fc; }
+  header span { color: #555; font-size: 0.82rem; }
+
+  .mode-tabs { display: flex; gap: 4px; margin-left: auto; }
+  .mode-tab { background: #1a1d2e; border: 1px solid #334155; color: #94a3b8;
+              padding: 5px 16px; border-radius: 5px; cursor: pointer; font-size: 0.82rem; }
+  .mode-tab.active { background: #7dd3fc; color: #000; font-weight: bold; border-color: #7dd3fc; }
+
+  .mode-section { display: none; height: calc(100vh - 57px); }
+  .mode-section.active { display: flex; }
+
+  .main-wrap { display: flex; width: 100%; }
+  .panels { display: grid; grid-template-columns: 1fr 1fr; flex: 1; }
+  .panel { display: flex; flex-direction: column; border-right: 1px solid #2a2d3e; }
+  .panel:last-child { border-right: none; }
+  .panel-header { padding: 9px 16px; background: #1a1d2e; font-size: 0.78rem; color: #94a3b8;
+                  display: flex; justify-content: space-between; align-items: center;
+                  border-bottom: 1px solid #2a2d3e; }
+  .badge { background: #334155; padding: 2px 8px; border-radius: 4px; font-size: 0.72rem; }
+  .badge.warn { background: #7f1d1d; color: #fca5a5; }
+  .badge.ok   { background: #14532d; color: #86efac; }
+
+  .input-hint { padding: 4px 14px 3px; font-size: 0.67rem; color: #4a5568;
+                background: #0f1117; border-bottom: 1px solid #1e2433; }
+  .input-hint kbd { background: #1e3a5f; color: #7dd3fc; padding: 1px 5px;
+                    border-radius: 3px; font-size: 0.65rem; }
+
+  textarea {
+    flex: 1; background: #0f1117; color: #e0e0e0; border: none; outline: none;
+    padding: 14px; font-family: 'Consolas', monospace; font-size: 0.82rem;
+    line-height: 1.6; resize: none;
+  }
+  .output-area {
+    flex: 1; overflow-y: auto; padding: 14px;
+    font-family: 'Consolas', monospace; font-size: 0.82rem; line-height: 1.6;
+    white-space: pre-wrap; word-break: break-all;
+  }
+
+  .sidebar { width: 260px; background: #1a1d2e; border-left: 1px solid #2a2d3e;
+             display: flex; flex-direction: column; overflow-y: auto; }
+  .sidebar-section { padding: 13px 15px; border-bottom: 1px solid #2a2d3e; }
+  .sidebar-section h3 { font-size: 0.72rem; color: #64748b; text-transform: uppercase;
+                        letter-spacing: 0.05em; margin-bottom: 9px; }
+
+  .btn { background: #1e3a5f; color: #e0e0e0; border: none; padding: 7px 13px;
+         border-radius: 5px; cursor: pointer; font-size: 0.8rem; width: 100%;
+         margin-bottom: 5px; text-align: left; transition: background 0.15s; }
+  .btn:hover { background: #2a5080; }
+  .btn.primary  { background: #7dd3fc; color: #000; font-weight: bold; }
+  .btn.primary:hover { background: #93defe; }
+  .btn.green    { background: #166534; color: #86efac; }
+  .btn.green:hover { background: #14532d; }
+  .btn.secondary { background: #334155; }
+
+  .inline-row { display: flex; gap: 5px; margin-bottom: 5px; }
+  .inline-row input { flex: 1; margin-bottom: 0; }
+  .inline-row .add-btn { flex-shrink: 0; background: #1e3a5f; color: #7dd3fc; border: 1px solid #334155;
+                          padding: 5px 10px; border-radius: 5px; cursor: pointer; font-size: 0.78rem;
+                          white-space: nowrap; }
+  .inline-row .add-btn:hover { background: #2a5080; }
+
+  input[type="text"] {
+    background: #0f1117; border: 1px solid #334155; color: #e0e0e0;
+    padding: 5px 9px; border-radius: 5px; font-size: 0.8rem; width: 100%;
+    margin-bottom: 5px; outline: none;
+  }
+  input[type="text"]:focus { border-color: #7dd3fc; }
+  input[type="text"]:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .tag { display: inline-block; background: #1e3a5f; color: #7dd3fc;
+         padding: 2px 7px; border-radius: 3px; font-size: 0.7rem; margin: 2px; cursor: pointer; }
+  .tag.remove { background: #3d1010; color: #f87171; }
+  .tag.literal { background: #2d1b4e; color: #c084fc; }
+  .tag.literal.remove { background: #3d1010; color: #f87171; }
+  .tag:hover { filter: brightness(1.2); }
+
+  mark.ip     { background: #7f1d1d44; color: #fca5a5; border-radius: 2px; padding: 0 2px; }
+  mark.token  { background: #78350f44; color: #fcd34d; border-radius: 2px; padding: 0 2px; }
+  mark.domain { background: #1e3a5f44; color: #93c5fd; border-radius: 2px; padding: 0 2px; }
+  mark.warn   { background: #71350044; color: #fdba74; border-radius: 2px; padding: 0 2px; }
+  mark.repl   { background: #14532d44; color: #86efac; border-radius: 2px; padding: 0 2px; }
+  mark.user   { background: #4a1d9644; color: #c084fc; border-radius: 2px; padding: 0 2px; }
+
+  .rule-toggle { display: flex; align-items: center; gap: 7px; font-size: 0.73rem;
+                 color: #94a3b8; padding: 3px 0; cursor: pointer; user-select: none; }
+  .rule-toggle input[type="checkbox"] { accent-color: #7dd3fc; cursor: pointer; flex-shrink: 0; }
+  .rule-toggle.disabled { color: #3d4a5c; }
+
+  .finding-row { font-size: 0.73rem; padding: 4px 0; border-bottom: 1px solid #2a2d3e; color: #94a3b8; }
+  .finding-row code { color: #fca5a5; font-size: 0.7rem; }
+  .finding-row .arrow { color: #86efac; }
+  .drop-hint { color: #555; font-size: 0.78rem; padding: 6px 0; }
+
+  #file-upload, #map-upload, #restore-file-upload { display: none; }
+  .upload-btn { background: #1a1d2e; border: 1px dashed #334155; color: #64748b;
+                padding: 7px; border-radius: 5px; cursor: pointer; text-align: center;
+                font-size: 0.78rem; margin-bottom: 5px; display: block; }
+  .upload-btn:hover { border-color: #7dd3fc; color: #7dd3fc; }
+
+  #restore-section { flex-direction: column; padding: 24px 32px; gap: 16px; overflow-y: auto; }
+  .restore-step { background: #1a1d2e; border: 1px solid #2a2d3e; border-radius: 8px; padding: 16px; }
+  .restore-step h2 { font-size: 0.85rem; color: #7dd3fc; margin-bottom: 10px; }
+  .restore-step p  { font-size: 0.78rem; color: #64748b; margin-bottom: 8px; }
+  #restore-output { background: #0f1117; border: 1px solid #334155; border-radius: 6px;
+                    padding: 12px; font-family: 'Consolas', monospace; font-size: 0.8rem;
+                    line-height: 1.6; white-space: pre-wrap; word-break: break-all;
+                    max-height: 300px; overflow-y: auto; color: #86efac; }
+  #restore-status { font-size: 0.8rem; color: #94a3b8; margin-top: 6px; min-height: 20px; }
+
+  mark.repl.lit-tok { cursor: pointer; }
+  mark.repl.lit-tok:hover { filter: brightness(1.4); }
+
+  .lang-btn { background:#1a1d2e; border:1px solid #334155; color:#64748b;
+              padding:3px 11px; border-radius:12px; cursor:pointer; font-size:0.75rem;
+              font-weight:700; font-family:inherit; transition:all .15s; flex-shrink:0; }
+  .lang-btn:hover { border-color:#7dd3fc; color:#7dd3fc; }
+  #sel-popup { display:none; position:fixed; z-index:9999; background:#1e3a5f;
+    border:1px solid #7dd3fc; border-radius:5px; padding:5px 13px;
+    font-size:0.75rem; color:#7dd3fc; cursor:pointer;
+    box-shadow:0 4px 14px #0009; user-select:none; white-space:nowrap; }
+
+  /* ── AI section ─────────────────────────────────────────────── */
+  #ai-section { flex-direction: column; padding: 20px 28px; gap: 14px; overflow-y: auto; }
+  .ai-row { display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
+  .ai-card { background: #1a1d2e; border: 1px solid #2a2d3e; border-radius: 8px; padding: 16px; flex: 1; min-width: 260px; }
+  .ai-card h2 { font-size: 0.82rem; color: #7dd3fc; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+  .ai-card p  { font-size: 0.72rem; color: #64748b; margin-bottom: 8px; line-height: 1.6; }
+
+  .ai-provider-tabs { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
+  .ai-ptab { background: #0f1117; border: 1px solid #334155; color: #64748b;
+             padding: 4px 13px; border-radius: 5px; cursor: pointer; font-size: 0.78rem; transition: all .15s; }
+  .ai-ptab.active { background: #7dd3fc; color: #000; font-weight: bold; border-color: #7dd3fc; }
+
+  .ai-key-row { display: flex; gap: 5px; align-items: center; }
+  .ai-key-row input { flex: 1; font-family: 'Consolas', monospace; font-size: 0.75rem; }
+  .ai-key-save { background: #166534; color: #86efac; border: none; padding: 5px 10px;
+                 border-radius: 5px; cursor: pointer; font-size: 0.75rem; white-space: nowrap; }
+  .ai-key-save:hover { background: #14532d; }
+  .ai-key-status { font-size: 0.68rem; color: #64748b; margin-top: 4px; min-height: 14px; }
+
+  .ai-model-select { background: #0f1117; border: 1px solid #334155; color: #e0e0e0;
+                     padding: 5px 9px; border-radius: 5px; font-size: 0.78rem;
+                     width: 100%; margin-bottom: 8px; outline: none; }
+  .ai-model-select:focus { border-color: #7dd3fc; }
+
+  #ai-sanitized-preview {
+    background: #0f1117; border: 1px solid #334155; border-radius: 6px;
+    padding: 10px; font-family: 'Consolas', monospace; font-size: 0.75rem;
+    line-height: 1.6; max-height: 160px; overflow-y: auto;
+    color: #94a3b8; white-space: pre-wrap; word-break: break-all;
+  }
+  .ai-sync-btn { background: #1e3a5f; color: #7dd3fc; border: none; padding: 5px 11px;
+                 border-radius: 5px; cursor: pointer; font-size: 0.75rem; margin-bottom: 7px; }
+  .ai-sync-btn:hover { background: #2a5080; }
+
+  #ai-prompt { width: 100%; height: 90px; background: #0f1117; border: 1px solid #334155;
+               border-radius: 6px; padding: 10px; color: #e0e0e0;
+               font-family: 'Segoe UI', sans-serif; font-size: 0.82rem; line-height: 1.6;
+               resize: vertical; outline: none; }
+  #ai-prompt:focus { border-color: #7dd3fc; }
+
+  .prompt-presets { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 7px; }
+  .preset-tag { background: #1e3a5f; color: #7dd3fc; padding: 3px 9px; border-radius: 4px;
+                font-size: 0.7rem; cursor: pointer; border: 1px solid #334155; }
+  .preset-tag:hover { background: #2a5080; }
+
+  .ai-send-row { display: flex; gap: 8px; align-items: center; }
+  #ai-send-btn { background: #7dd3fc; color: #000; border: none; padding: 9px 22px;
+                 border-radius: 6px; font-size: 0.85rem; font-weight: bold;
+                 cursor: pointer; transition: background .15s; }
+  #ai-send-btn:hover { background: #93defe; }
+  #ai-send-btn:disabled { opacity: .4; cursor: not-allowed; }
+  #ai-send-status { font-size: 0.75rem; color: #64748b; }
+
+  #ai-response-card { background: #1a1d2e; border: 1px solid #2a2d3e; border-radius: 8px; padding: 16px; }
+  #ai-response-card h2 { font-size: 0.82rem; color: #86efac; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+  #ai-response-area {
+    background: #0f1117; border: 1px solid #334155; border-radius: 6px;
+    padding: 12px; font-family: 'Consolas', monospace; font-size: 0.78rem;
+    line-height: 1.6; min-height: 120px; max-height: 320px; overflow-y: auto;
+    white-space: pre-wrap; word-break: break-all; color: #e0e0e0;
+  }
+  #ai-response-area.empty { color: #4a5568; font-style: italic; }
+  .ai-restore-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .ai-restore-btn { background: #166534; color: #86efac; border: none; padding: 7px 16px;
+                    border-radius: 5px; cursor: pointer; font-size: 0.8rem; font-weight: bold; }
+  .ai-restore-btn:hover { background: #14532d; }
+  .ai-copy-btn { background: #334155; color: #e0e0e0; border: none; padding: 7px 16px;
+                 border-radius: 5px; cursor: pointer; font-size: 0.8rem; }
+  .ai-copy-btn:hover { background: #3d4f66; }
+  .ai-dl-btn { background: #1e3a5f; color: #7dd3fc; border: none; padding: 7px 16px;
+               border-radius: 5px; cursor: pointer; font-size: 0.8rem; }
+  .ai-dl-btn:hover { background: #2a5080; }
+  #ai-restore-status { font-size: 0.75rem; color: #64748b; margin-top: 6px; min-height: 16px; }
+
+  #ai-restored-area {
+    margin-top: 8px; background: #0a1a10; border: 1px solid #166534; border-radius: 6px;
+    padding: 12px; font-family: 'Consolas', monospace; font-size: 0.78rem;
+    line-height: 1.6; max-height: 280px; overflow-y: auto;
+    white-space: pre-wrap; word-break: break-all; color: #86efac; display: none;
+  }
+
+
+  /* ── ML Suggestion sidebar section ─────────────────────────── */
+  .ml-section { padding: 13px 15px; border-bottom: 1px solid #2a2d3e; }
+  .ml-section h3 { font-size: 0.72rem; color: #64748b; text-transform: uppercase;
+                   letter-spacing: 0.05em; margin-bottom: 9px; }
+  .ml-run-btn {
+    width: 100%; background: linear-gradient(135deg,#4c1d95,#2d1b6e);
+    color: #c084fc; border: 1px solid #6d28d9; padding: 7px 10px;
+    border-radius: 5px; cursor: pointer; font-size: 0.78rem; font-weight: 700;
+    margin-bottom: 7px; transition: all .15s; text-align: left;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .ml-run-btn:hover { background: linear-gradient(135deg,#5b21b6,#3b1fa8); }
+  .ml-run-btn:disabled { opacity: .4; cursor: not-allowed; }
+  .ml-dl-wrap { display: none; background: #1a1020; border: 1px solid #4c1d95;
+                border-radius: 5px; padding: 8px 10px; margin-bottom: 7px; }
+  .ml-dl-wrap.show { display: block; }
+  .ml-dl-label { font-size: 0.68rem; color: #a78bfa; margin-bottom: 4px; }
+  .ml-dl-bg { height: 3px; background: #2d1b6e; border-radius: 2px; overflow: hidden; }
+  .ml-dl-bar { height: 100%; background: #7c3aed; border-radius: 2px; width: 0; transition: width .3s; }
+  .ml-type-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: #1e1040; border: 1px solid #4c1d95;
+    color: #c084fc; padding: 3px 9px; border-radius: 20px;
+    font-size: 0.7rem; font-weight: 700; margin-bottom: 8px;
+  }
+  .ml-suggest-list { display: flex; flex-direction: column; gap: 5px; }
+  .ml-item {
+    background: #0f0820; border: 1px solid #3b0764; border-radius: 5px;
+    padding: 7px 9px; font-size: 0.7rem;
+  }
+  .ml-item-value {
+    font-family: 'Consolas', monospace; color: #fcd34d;
+    font-size: 0.68rem; word-break: break-all; margin-bottom: 4px;
+  }
+  .ml-item-reason { color: #94a3b8; font-size: 0.65rem; margin-bottom: 5px; }
+  .ml-item-btns { display: flex; gap: 4px; }
+  .ml-add-literal { background: #4c1d95; color: #e9d5ff; border: none;
+                    padding: 3px 8px; border-radius: 4px; cursor: pointer;
+                    font-size: 0.65rem; transition: background .15s; }
+  .ml-add-literal:hover { background: #5b21b6; }
+  .ml-add-literal.done { background: #166534; color: #86efac; cursor: default; }
+  .ml-add-domain { background: #1e3a5f; color: #7dd3fc; border: none;
+                   padding: 3px 8px; border-radius: 4px; cursor: pointer;
+                   font-size: 0.65rem; }
+  .ml-add-domain:hover { background: #2a5080; }
+  .ml-add-domain.done { background: #166534; color: #86efac; cursor: default; }
+  .ml-confidence { font-size: 0.62rem; color: #6d28d9; font-family: monospace;
+                   background: #1e1040; padding: 1px 5px; border-radius: 3px; }
+  .ml-empty { font-size: 0.72rem; color: #4a5568; padding: 4px 0; }
+  .ml-accept-all { width: 100%; background: #4c1d95; color: #e9d5ff; border: none;
+                   padding: 6px; border-radius: 5px; cursor: pointer;
+                   font-size: 0.73rem; font-weight: 700; margin-top: 6px; }
+  .ml-accept-all:hover { background: #5b21b6; }
+
+</style>
+</head>
+<body>
+
+<header>
+  <h1 data-i18n="h1">🔒 Config 消毒</h1>
+  <span data-i18n="h_sub">貼上設定檔 → 自動遮蔽敏感值 → 安心分享或交給 AI 修改</span>
+  <div class="mode-tabs">
+    <button class="mode-tab active" onclick="switchMode('sanitize', event)" data-i18n="tab_sanitize">🛡 消毒</button>
+    <button class="mode-tab"       onclick="switchMode('restore', event)"  data-i18n="tab_restore">↩ 還原</button>
+    <button class="mode-tab"       onclick="switchMode('ai', event)"       data-i18n="tab_ai">✨ AI 處理</button>
+  </div>
+  <button class="lang-btn" id="lang-btn" onclick="toggleLang()">EN</button>
+</header>
+
+<!-- ═══════════════════ SANITIZE MODE ═══════════════════ -->
+<div id="sanitize-section" class="mode-section active">
+<div class="main-wrap">
+  <div class="panels">
+    <div class="panel">
+      <div class="panel-header">
+        <span data-i18n="panel_input">Input — 貼上原始 config</span>
+        <span id="input-badge" class="badge">0 lines</span>
+      </div>
+      <div class="input-hint" id="input-hint">💡 選取任意文字後會出現 <kbd>🔒 Mask this</kbd> 按鈕可快速加入遮蔽清單</div>
+      <textarea id="input" placeholder="貼上 nginx.conf / keepalived.conf / .env / YAML …" spellcheck="false"
+                oninput="onInput()"></textarea>
+    </div>
+    <div class="panel">
+      <div class="panel-header">
+        <span data-i18n="panel_output">消毒後輸出 — 可安全給 AI</span>
+        <span id="output-badge" class="badge ok">clean</span>
+      </div>
+      <div id="output" class="output-area"></div>
+    </div>
+  </div>
+
+  <div class="sidebar">
+    <!-- Actions -->
+    <div class="sidebar-section">
+      <label class="upload-btn" for="file-upload" data-i18n="btn_upload">📁 上傳檔案</label>
+      <input type="file" id="file-upload" onchange="loadFile(this)">
+      <button class="btn primary"   onclick="downloadSanitized()" data-i18n="btn_dl_san">⬇ 下載消毒版</button>
+      <button class="btn green"     onclick="downloadMap()"       data-i18n="btn_dl_map">🗺 下載 .map.json（還原用）</button>
+      <button class="btn secondary" onclick="copyOutput()"        data-i18n="btn_copy">📋 複製消毒版</button>
+      <button class="btn secondary" onclick="clearAll()"          data-i18n="btn_clear">✕ 清除</button>
+    </div>
+
+    <!-- Custom Domains -->
+    <div class="sidebar-section">
+      <h3 data-i18n="sec_domain">自訂 Domain</h3>
+      <div class="inline-row">
+        <input type="text" id="new-domain" placeholder="e.g. company.com"
+               onkeydown="if(event.key==='Enter')addDomain()">
+        <button class="add-btn" onclick="addDomain()" data-i18n="btn_add">加入</button>
+      </div>
+      <div id="domain-tags"></div>
+    </div>
+
+    <!-- Mask Literals -->
+    <div class="sidebar-section">
+      <h3 data-i18n="sec_mask">手動加入遮蔽</h3>
+      <div id="mask-hint" style="font-size:0.68rem;color:#555;margin-bottom:6px">直接輸入要遮蔽的字串（密碼、token）</div>
+      <div class="inline-row">
+        <input type="text" id="new-literal" placeholder="e.g. MyPassword123"
+               onkeydown="if(event.key==='Enter')addLiteral()">
+        <button class="add-btn" onclick="addLiteral()" data-i18n="btn_add">加入</button>
+      </div>
+      <div id="literal-tags"></div>
+    </div>
+
+    <!-- Active Rules -->
+    <div class="sidebar-section">
+      <h3>偵測規則</h3>
+      <label class="rule-toggle">
+        <input type="checkbox" checked onchange="setRule('PRIVATE_IP', this.checked)">
+        Private IPs（RFC 1918）
+      </label>
+      <label class="rule-toggle">
+        <input type="checkbox" checked onchange="setRule('PAT', this.checked)">
+        GitLab / GitHub PAT
+      </label>
+      <label class="rule-toggle">
+        <input type="checkbox" checked onchange="setRule('TG_TOKEN', this.checked)">
+        Telegram bot token
+      </label>
+      <label class="rule-toggle">
+        <input type="checkbox" checked onchange="setRule('HOOK_TOKEN', this.checked)">
+        Webhook tokens（/hooks/…）
+      </label>
+      <label class="rule-toggle">
+        <input type="checkbox" checked onchange="setRule('HEURISTIC', this.checked)">
+        Heuristic（password= 欄位）
+      </label>
+      <label class="rule-toggle">
+        <input type="checkbox" checked onchange="setRule('SSH_TARGET', this.checked)">
+        user@IP / user@host（SSH 格式）
+      </label>
+      <label class="rule-toggle">
+        <input type="checkbox" checked onchange="setRule('LINUX_PATH', this.checked)">
+        Linux 路徑（/home/ /etc/ /var/）
+      </label>
+      <label class="rule-toggle">
+        <input type="checkbox" checked onchange="setRule('EXT_DOMAIN', this.checked)">
+        域名（.org .net .io .tw 等）
+      </label>
+      <label class="rule-toggle">
+        <input type="checkbox" checked onchange="setRule('AWS_KEY', this.checked)">
+        AWS Access Key
+      </label>
+      <label class="rule-toggle">
+        <input type="checkbox" checked onchange="setRule('JWT', this.checked)">
+        JWT Token
+      </label>
+      <label class="rule-toggle">
+        <input type="checkbox" checked onchange="setRule('FORTI_ENC', this.checked)">
+        FortiGate ENC / PSK
+      </label>
+      <div style="border-top:1px solid #2a2d3e;margin:8px 0"></div>
+      <label class="rule-toggle">
+        <input type="checkbox" id="mask-user-cb" onchange="toggleUserMask(this.checked)">
+        <span data-i18n="rule_user">遮蔽 username</span>
+      </label>
+      <input type="text" id="username-input" placeholder="your username"
+             style="display:none;margin-top:4px" oninput="onInput()">
+    </div>
+
+    <!-- Findings -->
+    <div class="sidebar-section">
+      <h3 data-i18n="sec_findings">偵測結果</h3>
+      <div id="findings"><div class="drop-hint" data-i18n="findings_empty">尚未發現敏感資料</div></div>
+    </div>
+
+    <!-- ML Suggestion -->
+    <div class="ml-section">
+      <h3 data-i18n="sec_ml">🤖 ML 語意建議</h3>
+      <button class="ml-run-btn" id="ml-run-btn" onclick="runMLSuggest()">
+        <span>✨</span><span id="ml-btn-label" data-i18n="ml_analyze">分析敏感欄位</span>
+      </button>
+      <div class="ml-dl-wrap" id="ml-dl-wrap">
+        <div class="ml-dl-label" id="ml-dl-label" data-i18n="ml_downloading">下載模型中...</div>
+        <div class="ml-dl-bg"><div class="ml-dl-bar" id="ml-dl-bar"></div></div>
+      </div>
+      <div id="ml-type-area"></div>
+      <div class="ml-suggest-list" id="ml-suggest-list"></div>
+    </div>
+
+    <!-- How to restore -->
+    <div class="sidebar-section">
+      <h3 data-i18n="sec_howto">如何還原</h3>
+      <div id="howto-steps" style="font-size:0.7rem;color:#64748b;line-height:1.9">
+        1. 下載消毒版文字<br>
+        2. 下載 <b style="color:#86efac">.map.json</b>（妥善保管）<br>
+        3. 把消毒版給 AI 改<br>
+        4. 切換到 <b style="color:#7dd3fc">↩ 還原</b> 頁<br>
+        5. 上傳 map + 貼入 AI 輸出 → 完成
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════════ RESTORE MODE ═══════════════════ -->
+<div id="restore-section" class="mode-section">
+  <div class="restore-step">
+    <h2 data-i18n="rs1_title">Step 1 — 上傳 .map.json</h2>
+    <p data-i18n="rs1_desc">消毒時下載的 mapping 檔案。</p>
+    <label class="upload-btn" for="map-upload" style="display:inline-block;padding:8px 16px;width:auto" data-i18n="rs1_btn">
+      📂 Upload .map.json
+    </label>
+    <input type="file" id="map-upload" accept=".json" onchange="loadMap(this)">
+    <div id="map-status" style="font-size:0.78rem;color:#64748b;margin-top:6px" data-i18n="rs1_status">尚未載入 map</div>
+  </div>
+
+  <div class="restore-step">
+    <h2 data-i18n="rs2_title">Step 2 — 貼入消毒後文字（或上傳）</h2>
+    <p data-i18n="rs2_desc">含 <code style="color:#fcd34d">[[TAG_xxxxxx]]</code> token 的文字（AI 的輸出）。</p>
+    <label class="upload-btn" for="restore-file-upload" style="display:inline-block;padding:8px 16px;width:auto" data-i18n="rs2_btn">
+      📂 上傳消毒後檔案
+    </label>
+    <input type="file" id="restore-file-upload" onchange="loadRestoreFile(this)">
+    <textarea id="restore-input" style="width:100%;height:120px;background:#0f1117;border:1px solid #334155;
+              border-radius:6px;padding:10px;color:#e0e0e0;font-family:Consolas,monospace;font-size:0.8rem;
+              line-height:1.6;resize:vertical;outline:none;margin-top:8px"
+              placeholder="貼入 AI 改完的消毒版 config…" spellcheck="false"></textarea>
+  </div>
+
+  <div class="restore-step">
+    <h2 data-i18n="rs3_title">Step 3 — 還原</h2>
+    <button class="btn primary" style="width:auto;padding:8px 20px" onclick="doRestore()" data-i18n="rs3_btn">↩ 還原原始值</button>
+    <button class="btn secondary" style="width:auto;padding:8px 20px;margin-left:6px" onclick="downloadRestored()" data-i18n="rs3_dl">⬇ 下載還原版</button>
+    <div id="restore-status"></div>
+    <pre id="restore-output" style="margin-top:10px;display:none"></pre>
+  </div>
+</div>
+
+
+<!-- ═══════════════════ AI MODE ═══════════════════ -->
+<div id="ai-section" class="mode-section">
+
+  <div class="ai-row">
+    <!-- Left: Config + API setup -->
+    <div class="ai-card" style="flex:1.2">
+      <h2 data-i18n="ai_settings">⚙️ 設定</h2>
+
+      <!-- Provider -->
+      <p data-i18n="ai_provider">選擇 AI 服務</p>
+      <div class="ai-provider-tabs">
+        <button class="ai-ptab active" data-provider="claude"  onclick="setProvider('claude',this)">Claude</button>
+        <button class="ai-ptab"        data-provider="openai"  onclick="setProvider('openai',this)">GPT</button>
+        <button class="ai-ptab"        data-provider="gemini"  onclick="setProvider('gemini',this)">Gemini</button>
+      </div>
+
+      <!-- Model -->
+      <select class="ai-model-select" id="ai-model"></select>
+
+      <!-- API Key -->
+      <p data-i18n="ai_key_desc">API Key（存在瀏覽器 localStorage，不會上傳）</p>
+      <div class="ai-key-row">
+        <input type="password" id="ai-key-input" placeholder="貼上 API key…">
+        <button class="ai-key-save" onclick="saveKey()" data-i18n="ai_key_save">💾 存</button>
+      </div>
+      <div class="ai-key-status" id="ai-key-status"></div>
+    </div>
+
+    <!-- Right: Sanitized config preview -->
+    <div class="ai-card" style="flex:2">
+      <h2 data-i18n="ai_preview_title">🛡 消毒後的 Config（AI 將看到這個）</h2>
+      <button class="ai-sync-btn" onclick="syncFromSanitize()" data-i18n="ai_sync">↺ 從消毒頁同步</button>
+      <div id="ai-sanitized-preview" contenteditable="true" spellcheck="false" data-i18n="ai_preview_hint">（先在「消毒」頁貼上 config，再點上方按鈕同步）</div>
+    </div>
+  </div>
+
+  <!-- Prompt -->
+  <div class="ai-card">
+    <h2 data-i18n="ai_prompt_title">💬 告訴 AI 要做什麼</h2>
+    <div class="prompt-presets" id="prompt-presets"></div>
+    <textarea id="ai-prompt" placeholder="例：幫我在 server 區塊加入 gzip on; 並優化 keepalive 設定…"></textarea>
+    <div class="ai-send-row" style="margin-top:9px">
+      <button id="ai-send-btn" onclick="sendToAI()" data-i18n="ai_send">✨ 送出給 AI</button>
+      <span id="ai-send-status"></span>
+    </div>
+  </div>
+
+  <!-- Response -->
+  <div id="ai-response-card">
+    <h2 data-i18n="ai_resp_title">🤖 AI 回應</h2>
+    <div id="ai-response-area" class="empty" data-i18n="ai_resp_empty">AI 回應會顯示在這裡…</div>
+    <div class="ai-restore-row">
+      <button class="ai-restore-btn" onclick="restoreAIResponse()" data-i18n="ai_restore">↩ 還原真實值</button>
+      <button class="ai-copy-btn"    onclick="copyAIRestored()"    data-i18n="ai_copy">📋 複製</button>
+      <button class="ai-dl-btn"      onclick="downloadAIRestored()" data-i18n="ai_dl">⬇ 下載</button>
+    </div>
+    <div id="ai-restore-status"></div>
+    <pre id="ai-restored-area"></pre>
+  </div>
+
+</div>
+
+<div id="sel-popup" onclick="maskSelection()">🔒 Mask this</div>
+
+<script>
+// ── i18n ──────────────────────────────────────────────────────────────────────
+let _lang = localStorage.getItem('as-lang') || (navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en');
+
+const T = {
+  zh: {
+    h1: '🔒 Config 消毒',
+    h_sub: '貼上設定檔 → 自動遮蔽敏感值 → 安心分享或交給 AI 修改',
+    tab_sanitize: '🛡 消毒', tab_restore: '↩ 還原', tab_ai: '✨ AI 處理',
+    panel_input: 'Input — 貼上原始 config',
+    panel_output: '消毒後輸出 — 可安全給 AI',
+    input_hint: '💡 選取任意文字後會出現 <kbd style="background:#1e3a5f;color:#7dd3fc;padding:1px 5px;border-radius:3px;font-size:0.65rem">🔒 Mask this</kbd> 按鈕可快速加入遮蔽清單',
+    btn_upload: '📁 上傳檔案', btn_dl_san: '⬇ 下載消毒版',
+    btn_dl_map: '🗺 下載 .map.json（還原用）',
+    btn_copy: '📋 複製消毒版', btn_clear: '✕ 清除', btn_add: '加入',
+    sec_domain: '自訂 Domain', sec_mask: '手動加入遮蔽',
+    mask_hint: '直接輸入要遮蔽的字串（密碼、token）',
+    rule_user: '遮蔽 username',
+    sec_findings: '偵測結果', findings_empty: '尚未發現敏感資料',
+    sec_ml: '🤖 ML 語意建議', ml_analyze: '分析敏感欄位', ml_downloading: '下載模型中...',
+    sec_howto: '如何還原',
+    howto: '1. 下載消毒版文字<br>2. 下載 <b style="color:#86efac">.map.json</b>（妥善保管）<br>3. 把消毒版給 AI 改<br>4. 切換到 <b style="color:#7dd3fc">↩ 還原</b> 頁<br>5. 上傳 map + 貼入 AI 輸出 → 完成',
+    rs1_title: 'Step 1 — 上傳 .map.json', rs1_desc: '消毒時下載的 mapping 檔案。',
+    rs1_btn: '📂 Upload .map.json', rs1_status: '尚未載入 map',
+    rs2_title: 'Step 2 — 貼入消毒後文字（或上傳）',
+    rs2_desc: '含 <code style="color:#fcd34d">[[TAG_xxxxxx]]</code> token 的文字（AI 的輸出）。',
+    rs2_btn: '📂 上傳消毒後檔案', rs3_title: 'Step 3 — 還原',
+    rs3_btn: '↩ 還原原始值', rs3_dl: '⬇ 下載還原版',
+    ai_settings: '⚙️ 設定', ai_provider: '選擇 AI 服務',
+    ai_key_desc: 'API Key（存在瀏覽器 localStorage，不會上傳）', ai_key_save: '💾 存',
+    ai_preview_title: '🛡 消毒後的 Config（AI 將看到這個）',
+    ai_sync: '↺ 從消毒頁同步',
+    ai_preview_hint: '（先在「消毒」頁貼上 config，再點上方按鈕同步）',
+    ai_prompt_title: '💬 告訴 AI 要做什麼', ai_send: '✨ 送出給 AI',
+    ai_resp_title: '🤖 AI 回應', ai_resp_empty: 'AI 回應會顯示在這裡…',
+    ai_restore: '↩ 還原真實值', ai_copy: '📋 複製', ai_dl: '⬇ 下載',
+    // dynamic
+    key_saved: '✅ 已儲存到 localStorage', key_exists: '🔑 Key 已存在',
+    key_none: '尚未設定 Key', copied: '📋 已複製', restored_n: n => `✅ 已還原 ${n} 個值`,
+    restored_none: '⚠️ 沒有找到可還原的 token', map_none: '尚未載入 map',
+    input_ph: '貼上 nginx.conf / keepalived.conf / .env / YAML …',
+    restore_ph: '貼入 AI 改完的消毒版 config…',
+    ai_key_ph: '貼上 API key…',
+    ai_prompt_ph: '例：幫我在 server 區塊加入 gzip on; 並優化 keepalive 設定…',
+  },
+  en: {
+    h1: '🔒 Config Sanitizer',
+    h_sub: 'Paste config → auto-redact secrets → safely share or send to AI',
+    tab_sanitize: '🛡 Sanitize', tab_restore: '↩ Restore', tab_ai: '✨ AI Process',
+    panel_input: 'Input — paste your config',
+    panel_output: 'Sanitized output — safe to share',
+    input_hint: '💡 Select any text to show the <kbd style="background:#1e3a5f;color:#7dd3fc;padding:1px 5px;border-radius:3px;font-size:0.65rem">🔒 Mask this</kbd> button',
+    btn_upload: '📁 Upload file', btn_dl_san: '⬇ Download sanitized',
+    btn_dl_map: '🗺 Download .map.json (for restore)',
+    btn_copy: '📋 Copy sanitized', btn_clear: '✕ Clear', btn_add: 'Add',
+    sec_domain: 'Custom Domain', sec_mask: 'Manual Mask',
+    mask_hint: 'Enter any string to mask (password, token)',
+    rule_user: 'Mask username',
+    sec_findings: 'Findings', findings_empty: 'No sensitive data found',
+    sec_ml: '🤖 ML Suggestions', ml_analyze: 'Analyze sensitive fields', ml_downloading: 'Downloading model...',
+    sec_howto: 'How to restore',
+    howto: '1. Download sanitized text<br>2. Download <b style="color:#86efac">.map.json</b> (keep it safe)<br>3. Send sanitized to AI for edits<br>4. Switch to <b style="color:#7dd3fc">↩ Restore</b> tab<br>5. Upload map + paste AI output → done',
+    rs1_title: 'Step 1 — Upload .map.json', rs1_desc: 'The mapping file downloaded during sanitization.',
+    rs1_btn: '📂 Upload .map.json', rs1_status: 'No map loaded',
+    rs2_title: 'Step 2 — Paste sanitized text (or upload)',
+    rs2_desc: 'Text containing <code style="color:#fcd34d">[[TAG_xxxxxx]]</code> tokens (AI output).',
+    rs2_btn: '📂 Upload sanitized file', rs3_title: 'Step 3 — Restore',
+    rs3_btn: '↩ Restore values', rs3_dl: '⬇ Download restored',
+    ai_settings: '⚙️ Settings', ai_provider: 'Select AI provider',
+    ai_key_desc: 'API Key (stored in localStorage, never uploaded)', ai_key_save: '💾 Save',
+    ai_preview_title: '🛡 Sanitized Config (AI will see this)',
+    ai_sync: '↺ Sync from sanitize',
+    ai_preview_hint: '(Paste config in the Sanitize tab first, then click sync)',
+    ai_prompt_title: '💬 Tell AI what to do', ai_send: '✨ Send to AI',
+    ai_resp_title: '🤖 AI Response', ai_resp_empty: 'AI response will appear here…',
+    ai_restore: '↩ Restore values', ai_copy: '📋 Copy', ai_dl: '⬇ Download',
+    // dynamic
+    key_saved: '✅ Saved to localStorage', key_exists: '🔑 Key exists',
+    key_none: 'No key set', copied: '📋 Copied', restored_n: n => `✅ Restored ${n} value(s)`,
+    restored_none: '⚠️ No restorable tokens found', map_none: 'No map loaded',
+    input_ph: 'Paste nginx.conf / keepalived.conf / .env / YAML …',
+    restore_ph: 'Paste sanitized config (AI output with [[TAG_xxxxxx]] tokens)…',
+    ai_key_ph: 'Paste API key…',
+    ai_prompt_ph: 'e.g. Add gzip on; in the server block and optimize keepalive settings…',
+  }
+};
+
+function applyLang() {
+  const t = T[_lang];
+  const skipInLoop = new Set(['input_hint','howto','rs2_desc','ai_preview_hint']);
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    if (t[key] === undefined || skipInLoop.has(key)) return;
+    el.textContent = t[key];
+  });
+  // placeholders
+  const ph = { input: 'input_ph', 'restore-input': 'restore_ph', 'ai-key-input': 'ai_key_ph', 'ai-prompt': 'ai_prompt_ph' };
+  for (const [id, key] of Object.entries(ph)) {
+    const el = document.getElementById(id);
+    if (el) el.placeholder = t[key];
+  }
+  // lang button
+  document.getElementById('lang-btn').textContent = _lang === 'zh' ? 'EN' : '中文';
+  // elements with innerHTML
+  const hw = document.getElementById('howto-steps');
+  if (hw) hw.innerHTML = t.howto;
+  const ih = document.getElementById('input-hint');
+  if (ih) ih.innerHTML = t.input_hint;
+  const rs2d = document.querySelector('[data-i18n="rs2_desc"]');
+  if (rs2d) rs2d.innerHTML = t.rs2_desc;
+  const mh = document.getElementById('mask-hint');
+  if (mh) mh.textContent = t.mask_hint;
+  // ai-sanitized-preview: only update if it still shows a placeholder
+  const prev = document.getElementById('ai-sanitized-preview');
+  if (prev) {
+    const cur = prev.innerText.trim();
+    const isPlaceholder = [T.zh.ai_preview_hint, T.en.ai_preview_hint,
+                           T.zh.ai_sync_empty, T.en.ai_sync_empty].some(p => p && cur === p);
+    if (!cur || isPlaceholder) prev.innerText = t.ai_preview_hint;
+  }
+}
+
+function toggleLang() {
+  _lang = _lang === 'zh' ? 'en' : 'zh';
+  localStorage.setItem('as-lang', _lang);
+  applyLang();
+}
+
+// ── MD5 (stable tokens matching Python hashlib.md5) ───────────────────────────
+function md5(str) {
+  function safeAdd(x, y) { const l=(x&0xffff)+(y&0xffff); return ((x>>16)+(y>>16)+(l>>16)<<16)|(l&0xffff); }
+  function rol(n,c){return(n<<c)|(n>>>(32-c));}
+  function cmn(q,a,b,x,s,t){return safeAdd(rol(safeAdd(safeAdd(a,q),safeAdd(x,t)),s),b);}
+  function ff(a,b,c,d,x,s,t){return cmn((b&c)|(~b&d),a,b,x,s,t);}
+  function gg(a,b,c,d,x,s,t){return cmn((b&d)|(c&~d),a,b,x,s,t);}
+  function hh(a,b,c,d,x,s,t){return cmn(b^c^d,a,b,x,s,t);}
+  function ii(a,b,c,d,x,s,t){return cmn(c^(b|~d),a,b,x,s,t);}
+  const b=unescape(encodeURIComponent(str)),m=[];
+  for(let i=0;i<b.length;i++) m[i>>2]=(m[i>>2]||0)|(b.charCodeAt(i)<<((i%4)*8));
+  const L=b.length;
+  m[L>>2]|=0x80<<((L%4)*8); m[(((L+8)>>6)<<4)+14]=L*8;
+  let a=1732584193,bc=-271733879,c=-1732584194,d=271733878;
+  for(let i=0;i<m.length;i+=16){
+    const [oa,ob,oc,od]=[a,bc,c,d];
+    a=ff(a,bc,c,d,m[i],7,-680876936);d=ff(d,a,bc,c,m[i+1],12,-389564586);c=ff(c,d,a,bc,m[i+2],17,606105819);bc=ff(bc,c,d,a,m[i+3],22,-1044525330);
+    a=ff(a,bc,c,d,m[i+4],7,-176418897);d=ff(d,a,bc,c,m[i+5],12,1200080426);c=ff(c,d,a,bc,m[i+6],17,-1473231341);bc=ff(bc,c,d,a,m[i+7],22,-45705983);
+    a=ff(a,bc,c,d,m[i+8],7,1770035416);d=ff(d,a,bc,c,m[i+9],12,-1958414417);c=ff(c,d,a,bc,m[i+10],17,-42063);bc=ff(bc,c,d,a,m[i+11],22,-1990404162);
+    a=ff(a,bc,c,d,m[i+12],7,1804603682);d=ff(d,a,bc,c,m[i+13],12,-40341101);c=ff(c,d,a,bc,m[i+14],17,-1502002290);bc=ff(bc,c,d,a,m[i+15],22,1236535329);
+    a=gg(a,bc,c,d,m[i+1],5,-165796510);d=gg(d,a,bc,c,m[i+6],9,-1069501632);c=gg(c,d,a,bc,m[i+11],14,643717713);bc=gg(bc,c,d,a,m[i],20,-373897302);
+    a=gg(a,bc,c,d,m[i+5],5,-701558691);d=gg(d,a,bc,c,m[i+10],9,38016083);c=gg(c,d,a,bc,m[i+15],14,-660478335);bc=gg(bc,c,d,a,m[i+4],20,-405537848);
+    a=gg(a,bc,c,d,m[i+9],5,568446438);d=gg(d,a,bc,c,m[i+14],9,-1019803690);c=gg(c,d,a,bc,m[i+3],14,-187363961);bc=gg(bc,c,d,a,m[i+8],20,1163531501);
+    a=gg(a,bc,c,d,m[i+13],5,-1444681467);d=gg(d,a,bc,c,m[i+2],9,-51403784);c=gg(c,d,a,bc,m[i+7],14,1735328473);bc=gg(bc,c,d,a,m[i+12],20,-1926607734);
+    a=hh(a,bc,c,d,m[i+5],4,-378558);d=hh(d,a,bc,c,m[i+8],11,-2022574463);c=hh(c,d,a,bc,m[i+11],16,1839030562);bc=hh(bc,c,d,a,m[i+14],23,-35309556);
+    a=hh(a,bc,c,d,m[i+1],4,-1530992060);d=hh(d,a,bc,c,m[i+4],11,1272893353);c=hh(c,d,a,bc,m[i+7],16,-155497632);bc=hh(bc,c,d,a,m[i+10],23,-1094730640);
+    a=hh(a,bc,c,d,m[i+13],4,681279174);d=hh(d,a,bc,c,m[i],11,-358537222);c=hh(c,d,a,bc,m[i+3],16,-722521979);bc=hh(bc,c,d,a,m[i+6],23,76029189);
+    a=hh(a,bc,c,d,m[i+9],4,-640364487);d=hh(d,a,bc,c,m[i+12],11,-421815835);c=hh(c,d,a,bc,m[i+15],16,530742520);bc=hh(bc,c,d,a,m[i+2],23,-995338651);
+    a=ii(a,bc,c,d,m[i],6,-198630844);d=ii(d,a,bc,c,m[i+7],10,1126891415);c=ii(c,d,a,bc,m[i+14],15,-1416354905);bc=ii(bc,c,d,a,m[i+5],21,-57434055);
+    a=ii(a,bc,c,d,m[i+12],6,1700485571);d=ii(d,a,bc,c,m[i+3],10,-1894986606);c=ii(c,d,a,bc,m[i+10],15,-1051523);bc=ii(bc,c,d,a,m[i+1],21,-2054922799);
+    a=ii(a,bc,c,d,m[i+8],6,1873313359);d=ii(d,a,bc,c,m[i+15],10,-30611744);c=ii(c,d,a,bc,m[i+6],15,-1560198380);bc=ii(bc,c,d,a,m[i+13],21,1309151649);
+    a=ii(a,bc,c,d,m[i+4],6,-145523070);d=ii(d,a,bc,c,m[i+11],10,-1120210379);c=ii(c,d,a,bc,m[i+2],15,718787259);bc=ii(bc,c,d,a,m[i+9],21,-343485551);
+    a=safeAdd(a,oa);bc=safeAdd(bc,ob);c=safeAdd(c,oc);d=safeAdd(d,od);
+  }
+  return [a,bc,c,d].map(v=>(v<0?v+0x100000000:v).toString(16).padStart(8,'0').match(/../g).map(b=>b[1]+b[0]).join('')).join('').slice(0,6);
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let customDomains  = [];
+let customLiterals = [];
+let ruleEnabled    = { PRIVATE_IP: true, PAT: true, TG_TOKEN: true, HOOK_TOKEN: true, HEURISTIC: true, SSH_TARGET: true, LINUX_PATH: true, EXT_DOMAIN: true, AWS_KEY: true, JWT: true, CONN_STR: true, FORTI_ENC: true, PSK: true };
+let maskUser       = false;
+
+let _currentMapping  = {};
+let _currentResult   = '';
+let _currentFilename = 'sanitized_output.txt';
+
+// ── Rule definitions ──────────────────────────────────────────────────────────
+const BASE_RULES = [
+  // ── IP addresses ──────────────────────────────────────────
+  { key:'PRIVATE_IP', re:/\b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g,               tag:'PRIVATE_IP', label:'Private IP',      cls:'ip'    },
+  { key:'PRIVATE_IP', re:/\b192\.168\.\d{1,3}\.\d{1,3}\b/g,                   tag:'PRIVATE_IP', label:'Private IP',      cls:'ip'    },
+  { key:'PRIVATE_IP', re:/\b172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}\b/g, tag:'PRIVATE_IP', label:'Private IP',      cls:'ip'    },
+
+  // ── user@host / user@IP (SSH format) ──────────────────────
+  { key:'SSH_TARGET', re:/\b[a-z_][a-z0-9_\-]{0,30}@(?:\d{1,3}\.){3}\d{1,3}\b/gi, tag:'SSH_TARGET', label:'user@IP',       cls:'token' },
+  { key:'SSH_TARGET', re:/\b[a-z_][a-z0-9_\-]{0,30}@[a-z0-9][a-z0-9\-\.]{2,60}\.[a-z]{2,}\b/gi, tag:'SSH_TARGET', label:'user@host', cls:'token' },
+
+  // ── Linux / Unix paths ─────────────────────────────────────
+  { key:'LINUX_PATH', re:/\/home\/[a-zA-Z0-9_\-\.]+(?:\/[^\s"';<>|&,)\]]*)?/g,  tag:'LINUX_PATH', label:'Home path',      cls:'warn'  },
+  { key:'LINUX_PATH', re:/\/etc\/(?:ssl|nginx|apache2|ssh|pki|certs?)[^\s"';<>|&,)\]]*/g, tag:'LINUX_PATH', label:'Etc path', cls:'warn'  },
+  { key:'LINUX_PATH', re:/\/var\/(?:www|log|run|lib)\/[^\s"';<>|&,)\]]*/g,        tag:'LINUX_PATH', label:'Var path',       cls:'warn'  },
+  { key:'LINUX_PATH', re:/\/opt\/[a-zA-Z0-9_\-\.]+(?:\/[^\s"';<>|&,)\]]*)?/g,  tag:'LINUX_PATH', label:'Opt path',       cls:'warn'  },
+  { key:'LINUX_PATH', re:/\/root\/[^\s"';<>|&,)\]]*/g,                             tag:'LINUX_PATH', label:'Root path',      cls:'warn'  },
+
+  // ── Domains (.org .net .io .co .tw etc) ───────────────────
+  // Must have at least 2 parts, not be a pure IP, not already an email
+  { key:'EXT_DOMAIN', re:/(?<![\w@])(?:[a-z0-9][a-z0-9\-]{1,61}[a-z0-9]\.)+(?:org|net|io|co|tw|com\.tw|edu|gov|mil|biz|info|me|app|dev|cloud|internal|corp|lan|local)\b/gi, tag:'EXT_DOMAIN', label:'Domain', cls:'domain' },
+
+  // ── Tokens / keys ──────────────────────────────────────────
+  { key:'PAT',        re:/glpat-[A-Za-z0-9_\-]{20,}/g,                        tag:'GITLAB_PAT', label:'GitLab PAT',     cls:'token' },
+  { key:'PAT',        re:/ghp_[A-Za-z0-9]{36}/g,                               tag:'GITHUB_PAT', label:'GitHub PAT',     cls:'token' },
+  { key:'PAT',        re:/github_pat_[A-Za-z0-9_]{82}/g,                       tag:'GITHUB_PAT', label:'GitHub PAT',     cls:'token' },
+  { key:'AWS_KEY',    re:/AKIA[0-9A-Z]{16}/g,                                  tag:'AWS_KEY',    label:'AWS Access Key', cls:'token' },
+  { key:'JWT',        re:/eyJ[a-zA-Z0-9_\-]+\.eyJ[a-zA-Z0-9_\-]+\.[a-zA-Z0-9_\-]+/g, tag:'JWT', label:'JWT Token', cls:'token' },
+  { key:'TG_TOKEN',   re:/\b\d{8,12}:[A-Za-z0-9_\-]{35}\b/g,                  tag:'TG_TOKEN',   label:'Telegram token', cls:'token' },
+  { key:'HOOK_TOKEN', re:/(?<=\/hooks\/)[A-Za-z0-9_\-]{20,}/g,                 tag:'HOOK_TOKEN', label:'Webhook token',  cls:'token' },
+  { key:'CONN_STR',   re:/(?:mongodb|postgres|mysql|redis|mssql):\/\/[^\s"']+/gi, tag:'CONN_STR',  label:'Connection string', cls:'token' },
+
+  // ── FortiGate / Palo Alto specific ────────────────────────
+  { key:'FORTI_ENC',  re:/ENC\s+[A-Za-z0-9+\/=]{20,}/g,                       tag:'FORTI_ENC',  label:'FortiGate ENC',  cls:'token' },
+  { key:'PSK',        re:/(?:preshared-key|pre-shared-key|psk)\s*["']?([^\s"';<>{]+)["']?/gi, tag:'PSK', label:'PSK/Preshared key', cls:'token' },
+];
+const HEURISTIC_RE = /\b(password|passwd|secret|token|api[_\-]?key|auth[_\-]?key|webhook)\b\s*[=:]\s*["']?([A-Za-z0-9+\/\-_]{16,})["']?/gi;
+const SAFE_VALS    = new Set(['true','false','none','null','undefined','placeholder','changeme','xxx','redacted','your_token_here']);
+const TOKEN_RE     = /\[\[[A-Z_]+_[0-9a-f]{6}\]\]/g;
+
+function escR(s) { return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
+function makeToken(tag, val) { return `[[${tag}_${md5(val)}]]`; }
+
+function activeRules() {
+  const rules = [];
+  ;[...customLiterals].sort((a,b)=>b.length-a.length).forEach(lit => {
+    if (lit) rules.push({ key:'LITERAL', re: new RegExp(escR(lit),'g'), tag:'LITERAL', label:'Literal', cls:'repl' });
+  });
+  customDomains.forEach(d => {
+    rules.push({ key:'DOMAIN', re: new RegExp('(?:[a-z0-9_\\-]+\\.)+'+escR(d),'gi'), tag:'FQDN', label:`Domain (${d})`, cls:'domain' });
+  });
+  BASE_RULES.forEach(r => { if (ruleEnabled[r.key]) rules.push(r); });
+  if (maskUser) {
+    const uname = document.getElementById('username-input').value.trim();
+    if (uname) {
+      const esc = escR(uname);
+      if (uname.length >= 4)
+        rules.unshift({ key:'USERNAME', re:new RegExp(`\\b${esc}\\b`,'g'), tag:'USERNAME', label:'Username', cls:'user' });
+      ['/home/','/Users/'].forEach(pfx => {
+        rules.unshift({ key:'USERNAME',
+          re: new RegExp(`(?<=${escR(pfx)})${esc}(?=/|\\s|[\"':,]|$)`,'g'),
+          tag:'USERNAME', label:'Username in path', cls:'user' });
+      });
+    }
+  }
+  return rules;
+}
+
+function sanitizeText(text) {
+  const rules    = activeRules();
+  const findings = [];
+  const mapping  = {};
+  for (const rule of rules) {
+    rule.re.lastIndex = 0;
+    text = text.replace(rule.re, match => {
+      const tok = makeToken(rule.tag, match);
+      mapping[tok] = match;
+      findings.push({ label: rule.label, original: match, token: tok, cls: rule.cls });
+      return tok;
+    });
+  }
+  if (ruleEnabled.HEURISTIC) {
+    HEURISTIC_RE.lastIndex = 0;
+    let m;
+    while ((m = HEURISTIC_RE.exec(text)) !== null) {
+      const val = m[2];
+      if (!SAFE_VALS.has(val.toLowerCase()) && !/^\[\[/.test(val))
+        findings.push({ label:`⚠️ ${m[1]} field`, original: val.slice(0,8)+'…', token:'（請手動確認）', cls:'warn' });
+    }
+  }
+  return { result: text, findings, mapping };
+}
+
+function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+let _litTokenMap = {};
+
+function highlightOutput(text) {
+  _litTokenMap = {};
+  return escHtml(text).replace(/\[\[[A-Z_]+_[0-9a-f]{6}\]\]/g, m => {
+    const orig = _currentMapping[m];
+    if (orig !== undefined && customLiterals.includes(orig)) {
+      _litTokenMap[m] = orig;
+      return `<mark class="repl lit-tok" data-tok="${m}" title="點擊取消遮蔽">${escHtml(m)} <span style="opacity:.55;font-size:.65rem">✕</span></mark>`;
+    }
+    return `<mark class="repl">${escHtml(m)}</mark>`;
+  });
+}
+
+function onInput() {
+  const text = document.getElementById('input').value;
+  document.getElementById('input-badge').textContent = `${text.split('\n').length} lines`;
+  if (!text.trim()) {
+    document.getElementById('output').innerHTML = '';
+    document.getElementById('findings').innerHTML = '<div class="drop-hint">尚未發現敏感資料</div>';
+    document.getElementById('output-badge').className = 'badge ok';
+    document.getElementById('output-badge').textContent = 'clean';
+    _currentResult = ''; _currentMapping = {};
+    return;
+  }
+  const { result, findings, mapping } = sanitizeText(text);
+  _currentResult  = result;
+  _currentMapping = mapping;
+  document.getElementById('output').innerHTML = highlightOutput(result);
+  const real = findings.filter(f => !f.label.startsWith('⚠️'));
+  if (findings.length === 0) {
+    document.getElementById('findings').innerHTML = '<div class="drop-hint" style="color:#86efac">✅ 無敏感資料</div>';
+    document.getElementById('output-badge').className = 'badge ok';
+    document.getElementById('output-badge').textContent = 'clean';
+  } else {
+    document.getElementById('output-badge').className = 'badge warn';
+    document.getElementById('output-badge').textContent = `${real.length} 已遮蔽`;
+    document.getElementById('findings').innerHTML = findings.map(f =>
+      `<div class="finding-row"><b>[${escHtml(f.label)}]</b><br>` +
+      `<code>${escHtml(f.original)}</code> <span class="arrow">→</span> ` +
+      `<code style="color:#86efac;font-size:0.68rem">${escHtml(f.token)}</code></div>`
+    ).join('');
+  }
+}
+
+function addDomain() {
+  const v = document.getElementById('new-domain').value.trim().toLowerCase();
+  if (!v || customDomains.includes(v)) return;
+  customDomains.push(v); document.getElementById('new-domain').value = '';
+  renderDomains(); onInput();
+}
+function removeDomain(d) { customDomains = customDomains.filter(x=>x!==d); renderDomains(); onInput(); }
+function renderDomains() {
+  document.getElementById('domain-tags').innerHTML =
+    customDomains.map(d=>`<span class="tag remove" onclick="removeDomain('${escHtml(d)}')">✕ ${escHtml(d)}</span>`).join('');
+}
+
+function addLiteral() {
+  const v = document.getElementById('new-literal').value.trim();
+  if (!v || customLiterals.includes(v)) return;
+  customLiterals.push(v); document.getElementById('new-literal').value = '';
+  renderLiterals(); onInput();
+}
+function removeLiteral(i) { customLiterals.splice(i,1); renderLiterals(); onInput(); }
+function renderLiterals() {
+  document.getElementById('literal-tags').innerHTML =
+    customLiterals.map((l,i)=>
+      `<span class="tag literal remove" onclick="removeLiteral(${i})">✕ ${escHtml(l.length>18?l.slice(0,18)+'…':l)}</span>`
+    ).join('');
+}
+
+function setRule(key, enabled) { ruleEnabled[key] = enabled; onInput(); }
+
+function toggleUserMask(on) {
+  maskUser = on;
+  const inp = document.getElementById('username-input');
+  inp.style.display = on ? 'block' : 'none';
+  if (!on) inp.value = '';
+  onInput();
+}
+
+function downloadSanitized() { if (!_currentResult) onInput(); if (!_currentResult) return; _dl(_currentResult, _currentFilename, 'text/plain'); }
+function downloadMap() {
+  if (!Object.keys(_currentMapping).length) onInput();
+  if (!Object.keys(_currentMapping).length) { alert('沒有需要映射的資料。'); return; }
+  _dl(JSON.stringify(_currentMapping,null,2), _currentFilename.replace(/(\.[^.]+)?$/,'.map.json'), 'application/json');
+}
+function copyOutput() { if (_currentResult) navigator.clipboard.writeText(_currentResult); }
+function clearAll()   { document.getElementById('input').value=''; _currentFilename='sanitized_output.txt'; onInput(); }
+function loadFile(inp) {
+  const f=inp.files[0]; if(!f) return;
+  _currentFilename=f.name;
+  const r=new FileReader(); r.onload=e=>{ document.getElementById('input').value=e.target.result; onInput(); }; r.readAsText(f);
+}
+function _dl(content,name,mime) { const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([content],{type:mime})); a.download=name; a.click(); }
+
+document.addEventListener('dragover',e=>e.preventDefault());
+document.addEventListener('drop',e=>{
+  e.preventDefault(); const f=e.dataTransfer.files[0]; if(!f) return;
+  _currentFilename=f.name;
+  const r=new FileReader(); r.onload=ev=>{document.getElementById('input').value=ev.target.result; onInput();}; r.readAsText(f);
+});
+
+let _restoreMapping = null;
+
+function loadMap(inp) {
+  const f=inp.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=e=>{
+    try {
+      _restoreMapping=JSON.parse(e.target.result);
+      document.getElementById('map-status').textContent=`✅ ${f.name}（${Object.keys(_restoreMapping).length} 個 token）`;
+      document.getElementById('map-status').style.color='#86efac';
+    } catch {
+      document.getElementById('map-status').textContent='❌ JSON 格式錯誤';
+      document.getElementById('map-status').style.color='#fca5a5';
+      _restoreMapping=null;
+    }
+  };
+  r.readAsText(f);
+}
+function loadRestoreFile(inp) {
+  const f=inp.files[0]; if(!f) return;
+  const r=new FileReader(); r.onload=e=>{document.getElementById('restore-input').value=e.target.result;}; r.readAsText(f);
+}
+function doRestore() {
+  if(!_restoreMapping){document.getElementById('restore-status').textContent='❌ 請先上傳 .map.json';document.getElementById('restore-status').style.color='#fca5a5';return;}
+  const text=document.getElementById('restore-input').value;
+  if(!text.trim()){document.getElementById('restore-status').textContent='❌ 請貼入消毒後文字';return;}
+  let count=0;
+  const restored=text.replace(/\[\[[A-Z_]+_[0-9a-f]{6}\]\]/g,m=>{if(_restoreMapping[m]){count++;return _restoreMapping[m];}return m;});
+  const out=document.getElementById('restore-output');
+  out.textContent=restored; out.style.display='block';
+  document.getElementById('restore-status').textContent=count>0?`✅ 已還原 ${count} 個值`:'⚠️ 沒有匹配的 token，請確認 map 檔案';
+  document.getElementById('restore-status').style.color=count>0?'#86efac':'#fdba74';
+}
+function downloadRestored() {
+  const t=document.getElementById('restore-output').textContent;
+  if(!t){doRestore();}
+  const out=document.getElementById('restore-output').textContent;
+  if(out) _dl(out,'restored_output.txt','text/plain');
+}
+
+// ── Select-to-mask ────────────────────────────────────────────────────────────
+let _selValue = '';
+
+document.getElementById('input').addEventListener('mouseup', function(e) {
+  const s = this.selectionStart, end = this.selectionEnd;
+  if (s !== end) {
+    _selValue = this.value.substring(s, end).trim();
+    if (_selValue.length >= 2) {
+      const p = document.getElementById('sel-popup');
+      p.style.left = Math.min(e.clientX - 44, window.innerWidth - 170) + 'px';
+      p.style.top  = (e.clientY - 40) + 'px';
+      p.style.display = 'block';
+      return;
+    }
+  }
+  hideSel();
+});
+
+document.addEventListener('mousedown', function(e) {
+  if (e.target.id !== 'sel-popup' && !e.target.closest('#sel-popup')) hideSel();
+});
+
+function hideSel() {
+  document.getElementById('sel-popup').style.display = 'none';
+  _selValue = '';
+}
+
+function maskSelection() {
+  if (!_selValue) return;
+  if (!customLiterals.includes(_selValue)) {
+    customLiterals.push(_selValue);
+    renderLiterals();
+    onInput();
+  }
+  hideSel();
+}
+
+// ── Click-to-unmask ───────────────────────────────────────────────────────────
+document.getElementById('output').addEventListener('click', function(e) {
+  const mark = e.target.closest('mark[data-tok]');
+  if (!mark) return;
+  const orig = _litTokenMap[mark.dataset.tok];
+  if (orig === undefined) return;
+  const idx = customLiterals.indexOf(orig);
+  if (idx !== -1) { customLiterals.splice(idx, 1); renderLiterals(); onInput(); }
+});
+
+
+// ══════════════════════════════════════════════════════════════
+// ── ML 3-Layer Pipeline ───────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+//
+// Layer 1 — Fast filter   : key+value embedding vs sensitive anchors
+//                           Threshold 0.32 → candidate
+// Layer 2 — Context window: embed ±3 surrounding lines
+//                           If context also scores ≥ 0.30 → boost confidence
+// Layer 3 — Cross-category: count how many anchor categories fire
+//                           2+ categories → HIGH, 1 + context → MED, else LOW
+//
+// Final output:
+//   🔴 HIGH  (layers 1+2+3 all fire)          → auto-suggest
+//   🟡 MED   (layers 1+2  OR  1+3 fire)       → suggest with warning
+//   ⚪ LOW   (only layer 1 fires, weak score)  → reference only
+
+// ── Anchors ────────────────────────────────────────────────────
+const CONFIG_TYPE_ANCHORS = {
+  nginx:      ['nginx server block', 'proxy_pass location', 'upstream server weight', 'listen port ssl', 'root directory index'],
+  fortigate:  ['config firewall policy', 'set srcaddr dstaddr', 'config vip extip mappedip', 'FortiGate config system interface'],
+  paloalto:   ['security rules vsys', 'address-group members', 'threat prevention profile', 'palo alto security policy'],
+  env:        ['environment variable KEY=VALUE', 'dotenv secret token password', 'DATABASE_URL API_KEY SECRET'],
+  yaml:       ['yaml kubernetes deployment spec', 'helm values chart', 'docker compose service ports volumes'],
+  python:     ['python configuration settings', 'django settings database', 'flask config secret key'],
+  keepalived: ['keepalived vrrp instance', 'virtual_ipaddress priority state MASTER'],
+};
+
+const SENSITIVE_ANCHORS = [
+  { type:'internal_host', label:'內部主機/服務', icon:'🖥',
+    phrases:['internal hostname server','backend upstream host','private server address','prod db host internal','application server backend name'] },
+  { type:'credential',    label:'憑證/密碼',     icon:'🔑',
+    phrases:['password credential secret','auth token key private','login password authentication','api key secret token bearer'] },
+  { type:'internal_path', label:'內部路徑',       icon:'📁',
+    phrases:['file path certificate key','ssl certificate private key path','config file directory path','pem key crt certificate file'] },
+  { type:'internal_url',  label:'內部 URL',       icon:'🔗',
+    phrases:['internal api endpoint url','private service url backend','internal webhook callback url','internal proxy target address'] },
+  { type:'network_info',  label:'網段/網路資訊',  icon:'🌐',
+    phrases:['subnet network range cidr','vlan interface network segment','internal network topology','private ip address range'] },
+  { type:'identifier',    label:'內部識別碼',     icon:'🏷',
+    phrases:['internal identifier name tag','service name identifier deployment','resource name label internal system'] },
+];
+
+// Context window clues — if these appear near a candidate, boost confidence
+const CONTEXT_CLUES = [
+  'password','secret','token','key','auth','credential','private',
+  'internal','prod','production','backend','upstream','database','db',
+  'ssl','tls','cert','certificate','api','endpoint','host','server',
+];
+
+const SAFE_PATTERNS = [
+  /^(true|false|yes|no|on|off|null|none|undefined|0|1)$/i,
+  /^https?:\/\/(localhost|127\.0\.0\.1)/,
+  /^\d+$/,
+  /^[#;]/,
+  /^[\s{}[\]]+$/,
+  /^\$\{.+\}$/,   // template vars like ${VAR}
+  /^%\{.+\}$/,
+];
+
+function isSafeValue(v){ return SAFE_PATTERNS.some(r=>r.test(v.trim())); }
+
+// ── Math helpers ────────────────────────────────────────────────
+function cosineSim(a, b){
+  if(!a||!b||!a.length||!b.length) return 0;
+  let dot=0,na=0,nb=0;
+  const len=Math.min(a.length,b.length);
+  for(let i=0;i<len;i++){dot+=a[i]*b[i];na+=a[i]*a[i];nb+=b[i]*b[i];}
+  return dot/(Math.sqrt(na)*Math.sqrt(nb)+1e-8);
+}
+
+async function embedOne(pipe, text){
+  const out = await pipe(text,{pooling:'mean',normalize:true});
+  return Array.from(out.data);
+}
+
+// ── Config line parser ──────────────────────────────────────────
+function parseConfigLines(text){
+  const lines = text.split('\n');
+  const pairs = [];
+  for(let i=0;i<lines.length;i++){
+    const raw  = lines[i];
+    const line = raw.trim();
+    if(!line||line.startsWith('#')||line.startsWith(';')||line.startsWith('//')) continue;
+    if(line.length>300) continue;
+    const m = line.match(/^(?:set\s+)?(\S+)\s*[=:\s]\s*(.+?)(?:;|\s*#.*)?$/) ||
+              line.match(/^(\S+)\s+([^{;#]+)/);
+    if(!m) continue;
+    const key = m[1].replace(/['"]/g,'').toLowerCase();
+    const val = m[2].replace(/['"{}[\]]/g,'').trim();
+    if(!val||val.length<3||isSafeValue(val)) continue;
+    if(/\[\[[A-Z_]+_[0-9a-f]{6}\]\]/.test(val)) continue;
+    if(customLiterals.includes(val)) continue;
+    // store line index for context window
+    pairs.push({key, val, lineIdx:i, rawLines:lines});
+  }
+  return pairs;
+}
+
+function isDomainLike(v){ return /(?:[a-z0-9-]+\.){1,}[a-z]{2,}$/i.test(v)&&!v.startsWith('http'); }
+
+// ── Context window scorer (Layer 2) ─────────────────────────────
+// Returns 0.0–1.0: fraction of context clue words found in surrounding lines
+function contextScore(lineIdx, rawLines, windowSize=3){
+  const start = Math.max(0, lineIdx-windowSize);
+  const end   = Math.min(rawLines.length-1, lineIdx+windowSize);
+  const context = rawLines.slice(start, end+1).join(' ').toLowerCase();
+  let hits=0;
+  for(const clue of CONTEXT_CLUES){
+    if(context.includes(clue)) hits++;
+  }
+  return Math.min(hits/4, 1.0); // normalize: 4 hits = score 1.0
+}
+
+// ── Cache ───────────────────────────────────────────────────────
+let _anchorCache   = null;
+let _typeCache     = null;
+
+// ── Main pipeline ───────────────────────────────────────────────
+async function runMLSuggest(){
+  const text = document.getElementById('input').value.trim();
+  if(!text){ alert('請先貼上 config'); return; }
+
+  const btn      = document.getElementById('ml-run-btn');
+  const dlWrap   = document.getElementById('ml-dl-wrap');
+  const listEl   = document.getElementById('ml-suggest-list');
+  const typeArea = document.getElementById('ml-type-area');
+
+  btn.disabled = true;
+  document.getElementById('ml-btn-label').textContent = '載入模型...';
+  dlWrap.classList.add('show');
+  listEl.innerHTML = '';
+  typeArea.innerHTML = '';
+
+  try {
+    const pipe = await window._loadEmbedder();
+    dlWrap.classList.remove('show');
+
+    // ── Build type & anchor caches ──────────────────────────────
+    if(!_typeCache){
+      _typeCache = {};
+      document.getElementById('ml-btn-label').textContent = '建立類型錨點...';
+      for(const [type, phrases] of Object.entries(CONFIG_TYPE_ANCHORS)){
+        const vecs = await Promise.all(phrases.map(p=>embedOne(pipe,p)));
+        const dim  = vecs[0].length;
+        const c    = new Float32Array(dim);
+        vecs.forEach(v=>v.forEach((x,i)=>c[i]+=x));
+        c.forEach((_,i)=>c[i]/=vecs.length);
+        _typeCache[type] = Array.from(c);
+      }
+    }
+
+    if(!_anchorCache){
+      _anchorCache = [];
+      document.getElementById('ml-btn-label').textContent = '建立敏感錨點...';
+      for(const anchor of SENSITIVE_ANCHORS){
+        const vecs = await Promise.all(anchor.phrases.map(p=>embedOne(pipe,p)));
+        const dim  = vecs[0].length;
+        const c    = new Float32Array(dim);
+        vecs.forEach(v=>v.forEach((x,i)=>c[i]+=x));
+        c.forEach((_,i)=>c[i]/=vecs.length);
+        _anchorCache.push({...anchor, centroid:Array.from(c)});
+      }
+    }
+
+    // ── Config type detection ───────────────────────────────────
+    document.getElementById('ml-btn-label').textContent = '偵測 Config 類型...';
+    const sampleVec = await embedOne(pipe, text.slice(0,1000));
+    let bestType='unknown', bestTypeScore=0.22;
+    for(const [type, centroid] of Object.entries(_typeCache)){
+      const s = cosineSim(sampleVec, centroid);
+      if(s>bestTypeScore){bestType=type;bestTypeScore=s;}
+    }
+    const TYPE_LABEL={nginx:'Nginx',fortigate:'FortiGate',paloalto:'Palo Alto',
+                      env:'.env',yaml:'YAML/K8s',python:'Python',keepalived:'Keepalived',unknown:'未知'};
+    typeArea.innerHTML=`<div class="ml-type-badge">
+      🔍 ${TYPE_LABEL[bestType]||bestType}
+      <span class="ml-confidence">${Math.round(bestTypeScore*100)}%</span>
+    </div>`;
+
+    // ── Parse lines & run 3-layer pipeline ─────────────────────
+    document.getElementById('ml-btn-label').textContent = 'Layer 1 過濾...';
+    const pairs = parseConfigLines(text);
+    const L1_THRESHOLD  = 0.32;
+    const L2_CTX_MIN    = 0.25;  // context score to trigger layer-2 boost
+    const L2_EMBED_MIN  = 0.28;  // context embed score for layer-2
+    const MULTI_CAT_MIN = 2;     // categories to trigger layer-3
+
+    const suggestions = [];
+    const seen = new Set();
+
+    for(let pi=0;pi<pairs.length;pi++){
+      const pair = pairs[pi];
+      if(seen.has(pair.val)) continue;
+      seen.add(pair.val);
+
+      document.getElementById('ml-btn-label').textContent = `Layer 1：${pi+1}/${pairs.length}`;
+
+      // ── Layer 1: key+value vs sensitive anchors ─────────────
+      const kvVec = await embedOne(pipe, `${pair.key}: ${pair.val}`);
+      const l1Scores = _anchorCache.map(a=>({
+        ...a, score: cosineSim(kvVec, a.centroid)
+      })).filter(a=>a.score>=L1_THRESHOLD)
+         .sort((a,b)=>b.score-a.score);
+
+      if(l1Scores.length===0) continue; // Layer 1 fail → skip
+
+      const topAnchor   = l1Scores[0];
+      const l1Score     = topAnchor.score;
+      const l1Categories= l1Scores.length; // how many categories fired
+
+      // ── Layer 2: context window ─────────────────────────────
+      const ctxScore    = contextScore(pair.lineIdx, pair.rawLines);
+      let   l2Pass      = ctxScore >= L2_CTX_MIN;
+
+      // Also embed the surrounding context lines for semantic check
+      const ctxStart = Math.max(0, pair.lineIdx-3);
+      const ctxEnd   = Math.min(pair.rawLines.length-1, pair.lineIdx+3);
+      const ctxText  = pair.rawLines.slice(ctxStart, ctxEnd+1).join(' ').slice(0,400);
+      const ctxVec   = await embedOne(pipe, ctxText);
+      const ctxEmbedScore = cosineSim(ctxVec, topAnchor.centroid);
+      l2Pass = l2Pass || ctxEmbedScore >= L2_EMBED_MIN;
+
+      // ── Layer 3: cross-category count ──────────────────────
+      const l3Pass = l1Categories >= MULTI_CAT_MIN;
+
+      // ── Confidence level ────────────────────────────────────
+      let confidence, level;
+      if(l2Pass && l3Pass){
+        // All three layers fire
+        confidence = Math.min(0.99, l1Score*0.5 + ctxScore*0.25 + (l1Categories/6)*0.25);
+        level = 'high';
+      } else if(l2Pass || l3Pass){
+        // Two layers fire
+        confidence = Math.min(0.85, l1Score*0.6 + ctxScore*0.2 + (l1Categories/6)*0.2);
+        level = 'med';
+      } else {
+        // Only layer 1
+        if(l1Score < 0.36) continue; // too weak, skip entirely
+        confidence = l1Score * 0.7;
+        level = 'low';
+      }
+
+      suggestions.push({
+        key: pair.key, val: pair.val,
+        topAnchor, l1Categories, l1Score,
+        ctxScore, ctxEmbedScore,
+        confidence, level,
+        isDomain: isDomainLike(pair.val),
+        allTypes: l1Scores.slice(0,3),
+      });
+    }
+
+    // Sort: high → med → low, then by confidence
+    const ORDER = {high:0,med:1,low:2};
+    suggestions.sort((a,b)=>ORDER[a.level]-ORDER[b.level]||b.confidence-a.confidence);
+
+    if(suggestions.length===0){
+      listEl.innerHTML='<div class="ml-empty">✅ Rule-based 已涵蓋，無額外建議</div>';
+      btn.disabled=false;
+      document.getElementById('ml-btn-label').textContent='重新分析';
+      return;
+    }
+
+    // ── Render ──────────────────────────────────────────────────
+    const LEVEL_META = {
+      high: { color:'#ef4444', bg:'#3f0a0a', border:'#7f1d1d', badge:'🔴 高信心', badgeColor:'#fca5a5' },
+      med:  { color:'#f59e0b', bg:'#2d1d00', border:'#78350f', badge:'🟡 中信心', badgeColor:'#fcd34d' },
+      low:  { color:'#6b7280', bg:'#0f0f13', border:'#1f2937', badge:'⚪ 參考',   badgeColor:'#9ca3af' },
+    };
+
+    // Group by level
+    for(const lvl of ['high','med','low']){
+      const group = suggestions.filter(s=>s.level===lvl);
+      if(group.length===0) continue;
+      const meta = LEVEL_META[lvl];
+
+      const hdr = document.createElement('div');
+      hdr.style.cssText = `font-size:0.65rem;color:${meta.badgeColor};font-weight:700;
+        padding:4px 0 3px;letter-spacing:.05em;text-transform:uppercase;margin-top:6px;`;
+      hdr.textContent = `${meta.badge} (${group.length})`;
+      listEl.appendChild(hdr);
+
+      group.forEach((s,idx)=>{
+        const gIdx = suggestions.indexOf(s);
+        const el = document.createElement('div');
+        el.className = 'ml-item';
+        el.id = 'mli-'+gIdx;
+        el.style.cssText = `background:${meta.bg};border-color:${meta.border};`;
+
+        const displayVal = s.val.length>42 ? s.val.slice(0,42)+'…' : s.val;
+        const typeLabels = s.allTypes.map(t=>
+          `<span style="color:#a78bfa;font-size:0.6rem">${t.icon} ${t.label}</span>`
+        ).join(' · ');
+
+        // Layer badges
+        const l2badge = (s.ctxScore>=L2_CTX_MIN||s.ctxEmbedScore>=L2_EMBED_MIN)
+          ? `<span style="color:#86efac;font-size:0.6rem">✓L2</span>` : `<span style="color:#374151;font-size:0.6rem">✗L2</span>`;
+        const l3badge = s.l1Categories>=2
+          ? `<span style="color:#86efac;font-size:0.6rem">✓L3</span>` : `<span style="color:#374151;font-size:0.6rem">✗L3</span>`;
+
+        el.innerHTML = `
+          <div class="ml-item-value" style="color:${meta.color}">${escHtml(displayVal)}</div>
+          <div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;flex-wrap:wrap">
+            ${typeLabels}
+          </div>
+          <div style="display:flex;align-items:center;gap:5px;margin-bottom:5px">
+            <span class="ml-confidence">${Math.round(s.confidence*100)}%</span>
+            <span style="color:#374151;font-size:0.6rem">L1✓</span>
+            ${l2badge}${l3badge}
+          </div>
+          <div class="ml-item-btns">
+            <button class="ml-add-literal" id="mlab-${gIdx}"
+              onclick="mlAddLiteral(${gIdx},${JSON.stringify(s.val)})">+ 加入遮蔽</button>
+            ${s.isDomain?`<button class="ml-add-domain" id="mlad-${gIdx}"
+              onclick="mlAddDomain(${gIdx},${JSON.stringify(s.val)})">+ 加 Domain</button>`:''}
+          </div>`;
+        listEl.appendChild(el);
+      });
+    }
+
+    // Accept all (high + med only)
+    const autoSuggest = suggestions.filter(s=>s.level!=='low');
+    if(autoSuggest.length>0){
+      const allBtn = document.createElement('button');
+      allBtn.className = 'ml-accept-all';
+      allBtn.textContent = `✨ 加入 🔴高+🟡中 (${autoSuggest.length} 個)`;
+      allBtn.onclick = ()=>{
+        autoSuggest.forEach(s=>{ const i=suggestions.indexOf(s); mlAddLiteral(i,s.val); });
+        allBtn.textContent='✓ 已全部加入';
+        allBtn.disabled=true;
+      };
+      listEl.appendChild(allBtn);
+    }
+
+  } catch(e){
+    listEl.innerHTML=`<div class="ml-empty" style="color:#fca5a5">❌ ${e.message}</div>`;
+    console.error(e);
+  }
+
+  btn.disabled=false;
+  document.getElementById('ml-btn-label').textContent='重新分析';
+}
+
+function mlAddLiteral(idx, val){
+  if(!customLiterals.includes(val)){ customLiterals.push(val); renderLiterals(); onInput(); }
+  const btn=document.getElementById('mlab-'+idx);
+  if(btn){btn.textContent='✓ 已加入';btn.classList.add('done');btn.disabled=true;}
+}
+
+function mlAddDomain(idx, val){
+  const parts=val.split('.');
+  const domain=parts.length>=2?parts.slice(-2).join('.'):val;
+  if(!customDomains.includes(domain)){customDomains.push(domain);renderDomains();onInput();}
+  const btn=document.getElementById('mlad-'+idx);
+  if(btn){btn.textContent='✓ 已加入';btn.classList.add('done');btn.disabled=true;}
+}
+
+// ── Mode switch ───────────────────────────────────────────────────────────────
+function switchMode(mode,event) {
+  document.querySelectorAll('.mode-section').forEach(el=>el.classList.remove('active'));
+  document.querySelectorAll('.mode-tab').forEach(el=>el.classList.remove('active'));
+  document.getElementById(mode+'-section').classList.add('active');
+  event.target.classList.add('active');
+}
+
+
+// ══════════════════════════════════════════════════════════════
+// ── AI Integration ────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+
+const AI_MODELS = {
+  claude: [
+    { id: 'claude-opus-4-5',    label: 'Claude Opus 4.5 (最強)' },
+    { id: 'claude-sonnet-4-5',  label: 'Claude Sonnet 4.5 (推薦)' },
+    { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 (最快)' },
+  ],
+  openai: [
+    { id: 'gpt-4o',             label: 'GPT-4o (推薦)' },
+    { id: 'gpt-4o-mini',        label: 'GPT-4o Mini (快速)' },
+    { id: 'o3-mini',            label: 'o3-mini (推理)' },
+  ],
+  gemini: [
+    { id: 'gemini-2.0-flash',   label: 'Gemini 2.0 Flash (推薦)' },
+    { id: 'gemini-1.5-pro',     label: 'Gemini 1.5 Pro (強力)' },
+  ],
+};
+
+const PROMPT_PRESETS = {
+  nginx: [
+    { label: 'gzip 最佳化',     text: '幫我開啟 gzip 壓縮並加上最佳化設定' },
+    { label: 'SSL 強化',        text: '幫我把 SSL 設定升級到只允許 TLS 1.2/1.3，並加上 HSTS' },
+    { label: '加 rate limiting',text: '幫我在 server 區塊加上 rate limiting 防止暴力破解' },
+    { label: '審查安全問題',    text: '審查這份 config 有哪些安全疑慮，並給出修改建議' },
+  ],
+  fortigate: [
+    { label: '審查 policy',     text: '審查這份 FortiGate policy，找出過於寬鬆的規則並建議收緊' },
+    { label: '加 IPS profile',  text: '幫我在相關 policy 加上 IPS profile' },
+    { label: '整理格式',        text: '整理這份 config 的格式，讓它更易讀' },
+  ],
+  paloalto: [
+    { label: '審查 security rule', text: '審查這份 Palo Alto security rule，找出 any/any 或過寬的規則' },
+    { label: '加 threat profile',  text: '幫我在 security policy 加上 threat prevention profile' },
+  ],
+  general: [
+    { label: '找安全問題', text: '找出這份 config 的安全問題並給出修改建議' },
+    { label: '整理格式',   text: '整理並美化這份 config 的格式，保持功能不變' },
+    { label: '加說明註解', text: '幫每個重要段落加上繁體中文說明註解' },
+  ],
+};
+
+let _aiProvider  = 'claude';
+let _aiMapping   = {};
+let _aiResponse  = '';
+let _aiRestored  = '';
+
+function setProvider(provider, btn) {
+  _aiProvider = provider;
+  document.querySelectorAll('.ai-ptab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  updateModelList();
+  loadKeyStatus();
+  updatePresets();
+}
+
+function updateModelList() {
+  const sel = document.getElementById('ai-model');
+  sel.innerHTML = AI_MODELS[_aiProvider].map(m =>
+    `<option value="${m.id}">${m.label}</option>`
+  ).join('');
+}
+
+function saveKey() {
+  const key = document.getElementById('ai-key-input').value.trim();
+  if (!key) return;
+  localStorage.setItem('as_key_' + _aiProvider, key);
+  document.getElementById('ai-key-input').value = '';
+  document.getElementById('ai-key-status').textContent = T[_lang].key_saved;
+  document.getElementById('ai-key-status').style.color = '#86efac';
+  setTimeout(() => {
+    document.getElementById('ai-key-status').textContent = T[_lang].key_exists;
+  }, 2000);
+}
+
+function loadKeyStatus() {
+  const key = localStorage.getItem('as_key_' + _aiProvider);
+  const el = document.getElementById('ai-key-status');
+  if (key) {
+    el.textContent = T[_lang].key_exists + '（' + key.slice(0,8) + '…）';
+    el.style.color = '#86efac';
+  } else {
+    el.textContent = T[_lang].key_none;
+    el.style.color = '#64748b';
+  }
+}
+
+function updatePresets() {
+  // Auto-detect config type from sanitized content
+  const content = document.getElementById('ai-sanitized-preview').innerText || '';
+  let category = 'general';
+  if (/server_name|proxy_pass|location\s+\//i.test(content))  category = 'nginx';
+  if (/config firewall|config vip|FortiGate/i.test(content))  category = 'fortigate';
+  if (/security rules|address-group|vsys/i.test(content))     category = 'paloalto';
+
+  const presets = [...(PROMPT_PRESETS[category] || []), ...PROMPT_PRESETS.general];
+  document.getElementById('prompt-presets').innerHTML = presets.slice(0,5).map(p =>
+    `<button class="preset-tag" onclick="usePreset(${JSON.stringify(p.text)})">${p.label}</button>`
+  ).join('');
+}
+
+function usePreset(text) {
+  document.getElementById('ai-prompt').value = text;
+}
+
+function syncFromSanitize() {
+  const sanitized = _currentResult;
+  if (!sanitized) {
+    document.getElementById('ai-sanitized-preview').innerText = _lang === 'zh' ? '（消毒頁尚無內容，請先貼上 config）' : '(No content in Sanitize tab — paste your config there first)';
+    return;
+  }
+  document.getElementById('ai-sanitized-preview').innerText = sanitized;
+  _aiMapping = { ..._currentMapping };
+  updatePresets();
+  document.getElementById('ai-sanitized-preview').style.color = '#e0e0e0';
+}
+
+async function sendToAI() {
+  const key = localStorage.getItem('as_key_' + _aiProvider);
+  if (!key) { alert('請先設定 API Key'); return; }
+
+  const config  = document.getElementById('ai-sanitized-preview').innerText.trim();
+  const prompt  = document.getElementById('ai-prompt').value.trim();
+  const model   = document.getElementById('ai-model').value;
+
+  if (!config) { alert('請先同步消毒後的 config'); return; }
+  if (!prompt) { alert('請輸入要 AI 做什麼'); return; }
+
+  const btn    = document.getElementById('ai-send-btn');
+  const status = document.getElementById('ai-send-status');
+  const respEl = document.getElementById('ai-response-area');
+
+  btn.disabled = true;
+  status.textContent = '⏳ 送出中…';
+  respEl.className = 'empty';
+  respEl.textContent = '等待 AI 回應…';
+
+  const systemPrompt = `你是一個資深網路工程師和系統管理員。使用者會提供一份已消毒的設定檔（敏感值已用 [[TAG_xxxxxx]] token 取代），請根據使用者的需求修改設定。重要規則：
+1. 所有 [[TAG_xxxxxx]] token 必須原封不動保留在輸出中，不要改動任何 token
+2. 只輸出修改後的完整 config，不要加多餘說明
+3. 如果需要說明，在 config 之前用 # 開頭的註解說明
+
+Config 內容：
+\`\`\`
+${config}
+\`\`\``;
+
+  try {
+    let text = '';
+
+    if (_aiProvider === 'claude') {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-calls': 'true',
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 4096,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error?.message || res.statusText); }
+      const data = await res.json();
+      text = data.content?.[0]?.text || '';
+
+    } else if (_aiProvider === 'openai') {
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user',   content: prompt },
+          ],
+          max_tokens: 4096,
+        }),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error?.message || res.statusText); }
+      const data = await res.json();
+      text = data.choices?.[0]?.message?.content || '';
+
+    } else if (_aiProvider === 'gemini') {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: systemPrompt + '\n\n使用者指示：' + prompt }] }],
+          generationConfig: { maxOutputTokens: 4096 },
+        }),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error?.message || res.statusText); }
+      const data = await res.json();
+      text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    }
+
+    _aiResponse = text;
+    respEl.textContent = text;
+    respEl.className = '';
+    status.textContent = '✅ 完成';
+    status.style.color = '#86efac';
+
+    // Auto-restore if we have mapping
+    if (Object.keys(_aiMapping).length > 0) {
+      autoRestoreAI(text);
+    }
+
+  } catch(e) {
+    respEl.textContent = '❌ 錯誤：' + e.message;
+    respEl.className = '';
+    status.textContent = '❌ 失敗';
+    status.style.color = '#fca5a5';
+  }
+  btn.disabled = false;
+}
+
+function restoreAIResponse() {
+  const mapping = Object.keys(_aiMapping).length ? _aiMapping : _restoreMapping;
+  if (!mapping || !Object.keys(mapping).length) {
+    document.getElementById('ai-restore-status').textContent = '❌ 沒有 mapping — 請先同步消毒頁，或在還原頁載入 .map.json';
+    document.getElementById('ai-restore-status').style.color = '#fca5a5';
+    return;
+  }
+  autoRestoreAI(_aiResponse, mapping);
+}
+
+function autoRestoreAI(text, mapping) {
+  const m = mapping || _aiMapping;
+  if (!text) return;
+  let count = 0;
+  const restored = text.replace(/\[\[[A-Z_]+_[0-9a-f]{6}\]\]/g, tok => {
+    if (m[tok]) { count++; return m[tok]; }
+    return tok;
+  });
+  _aiRestored = restored;
+  const el = document.getElementById('ai-restored-area');
+  el.textContent = restored;
+  el.style.display = 'block';
+  const st = document.getElementById('ai-restore-status');
+  st.textContent = count > 0 ? T[_lang].restored_n(count) : T[_lang].restored_none;
+  st.style.color = count > 0 ? '#86efac' : '#fdba74';
+}
+
+function copyAIRestored() {
+  const text = _aiRestored || _aiResponse;
+  if (text) navigator.clipboard.writeText(text).then(() => {
+    document.getElementById('ai-restore-status').textContent = '📋 已複製';
+  });
+}
+
+function downloadAIRestored() {
+  const text = _aiRestored || _aiResponse;
+  if (text) _dl(text, 'ai_output_restored.txt', 'text/plain');
+}
+
+// ── Init AI tab ────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function() {
+  applyLang();
+  updateModelList();
+  loadKeyStatus();
+  updatePresets();
+  renderDomains();
+});
+
+</script>
+  <div style="text-align:center;padding:10px 0 16px;font-size:11px;color:#374151;">
+    Built by <a href="https://github.com/kerr20801" target="_blank"
+      style="color:#7dd3fc;text-decoration:none;font-weight:700;">Kerr</a>
+    · <a href="https://github.com/kerr20801" target="_blank"
+      style="color:#4b5563;text-decoration:none;">github.com/kerr20801</a>
+  </div>
+</body>
+</html>
