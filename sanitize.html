@@ -587,6 +587,7 @@ const T = {
     key_saved: '✅ 已儲存到 localStorage', key_exists: '🔑 Key 已存在',
     key_none: '尚未設定 Key', copied: '📋 已複製', restored_n: n => `✅ 已還原 ${n} 個值`,
     restored_none: '⚠️ 沒有找到可還原的 token', map_none: '尚未載入 map',
+    restored_leftover: (n, tokens) => `⚠️ 已還原 ${n} 個值，但有 ${tokens.length} 個 token 沒對應到（可能被 AI 改寫過）：${tokens.join('、')}`,
     input_ph: '貼上 nginx.conf / keepalived.conf / .env / YAML …',
     restore_ph: '貼入 AI 改完的消毒版 config…',
     ai_key_ph: '貼上 API key…',
@@ -627,6 +628,7 @@ const T = {
     key_saved: '✅ Saved to localStorage', key_exists: '🔑 Key exists',
     key_none: 'No key set', copied: '📋 Copied', restored_n: n => `✅ Restored ${n} value(s)`,
     restored_none: '⚠️ No restorable tokens found', map_none: 'No map loaded',
+    restored_leftover: (n, tokens) => `⚠️ Restored ${n} value(s), but ${tokens.length} token(s) had no match (may have been altered by AI): ${tokens.join(', ')}`,
     input_ph: 'Paste nginx.conf / keepalived.conf / .env / YAML …',
     restore_ph: 'Paste sanitized config (AI output with [[TAG_xxxxxx]] tokens)…',
     ai_key_ph: 'Paste API key…',
@@ -950,8 +952,17 @@ function doRestore() {
   const restored=text.replace(/\[\[[A-Z_]+_[0-9a-f]{6}\]\]/g,m=>{if(_restoreMapping[m]){count++;return _restoreMapping[m];}return m;});
   const out=document.getElementById('restore-output');
   out.textContent=restored; out.style.display='block';
-  document.getElementById('restore-status').textContent=count>0?`✅ 已還原 ${count} 個值`:'⚠️ 沒有匹配的 token，請確認 map 檔案';
-  document.getElementById('restore-status').style.color=count>0?'#86efac':'#fdba74';
+  // 還原後再掃一次「還原後的文字」，抓出沒被替換掉的殘留 token——
+  // AI 有可能把 token 斷行/改寫過，光看總數看不出「哪個」失敗，明確列出來
+  const leftover=[...new Set(restored.match(/\[\[[A-Z_]+_[0-9a-f]{6}\]\]/g)||[])];
+  const st=document.getElementById('restore-status');
+  if(leftover.length){
+    st.textContent=`⚠️ 已還原 ${count} 個值，但有 ${leftover.length} 個 token 沒對應到（可能被 AI 改寫過）：${leftover.join('、')}`;
+    st.style.color='#fdba74';
+  } else {
+    st.textContent=count>0?`✅ 已還原 ${count} 個值`:'⚠️ 沒有匹配的 token，請確認 map 檔案';
+    st.style.color=count>0?'#86efac':'#fdba74';
+  }
 }
 function downloadRestored() {
   const t=document.getElementById('restore-output').textContent;
@@ -1620,9 +1631,16 @@ function autoRestoreAI(text, mapping) {
   const el = document.getElementById('ai-restored-area');
   el.textContent = restored;
   el.style.display = 'block';
+  // 還原後再掃一次「還原後的文字」，抓出沒被替換掉的殘留 token——見 doRestore() 同一次修的說明
+  const leftover = [...new Set(restored.match(/\[\[[A-Z_]+_[0-9a-f]{6}\]\]/g) || [])];
   const st = document.getElementById('ai-restore-status');
-  st.textContent = count > 0 ? T[_lang].restored_n(count) : T[_lang].restored_none;
-  st.style.color = count > 0 ? '#86efac' : '#fdba74';
+  if (leftover.length) {
+    st.textContent = T[_lang].restored_leftover(count, leftover);
+    st.style.color = '#fdba74';
+  } else {
+    st.textContent = count > 0 ? T[_lang].restored_n(count) : T[_lang].restored_none;
+    st.style.color = count > 0 ? '#86efac' : '#fdba74';
+  }
 }
 
 function copyAIRestored() {
